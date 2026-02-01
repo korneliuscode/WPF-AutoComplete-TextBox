@@ -44,11 +44,18 @@ namespace AutoCompleteTextBox.Editors
         public static readonly DependencyProperty MaxPopUpHeightProperty = DependencyProperty.Register("MaxPopUpHeight", typeof(int), typeof(AutoCompleteTextBox), new FrameworkPropertyMetadata(600));
         public static readonly DependencyProperty MaxPopUpWidthProperty = DependencyProperty.Register("MaxPopUpWidth", typeof(int), typeof(AutoCompleteTextBox), new FrameworkPropertyMetadata(2000));
 
+        /// <summary>
+        /// When non-null/empty, selecting a suggestion appends it to the current text with this separator (e.g. ", " for tags).
+        /// When null, selection replaces the text (single-value).
+        /// </summary>
+        public static readonly DependencyProperty MultiValueSeparatorProperty = DependencyProperty.Register("MultiValueSeparator", typeof(string), typeof(AutoCompleteTextBox), new FrameworkPropertyMetadata(null));
+
         public static readonly DependencyProperty WatermarkProperty = DependencyProperty.Register("Watermark", typeof(string), typeof(AutoCompleteTextBox), new FrameworkPropertyMetadata(string.Empty));
 
         public static readonly DependencyProperty SuggestionBackgroundProperty = DependencyProperty.Register("SuggestionBackground", typeof(Brush), typeof(AutoCompleteTextBox), new FrameworkPropertyMetadata(Brushes.White));
         private bool _isUpdatingText;
         private bool _selectionCancelled;
+        private bool _justCommitted;
 
         private SuggestionsAdapter _suggestionsAdapter;
 
@@ -219,6 +226,17 @@ namespace AutoCompleteTextBox.Editors
 
             set => SetValue(WatermarkProperty, value);
         }
+
+        /// <summary>
+        /// When set (e.g. ", "), selecting a suggestion appends it to the current text instead of replacing (multi-value/tags).
+        /// When null, selection replaces the text (single-value).
+        /// </summary>
+        public string MultiValueSeparator
+        {
+            get => (string)GetValue(MultiValueSeparatorProperty);
+            set => SetValue(MultiValueSeparatorProperty, value);
+        }
+
         public Brush SuggestionBackground
         {
             get => (Brush)GetValue(SuggestionBackgroundProperty);
@@ -372,6 +390,12 @@ namespace AutoCompleteTextBox.Editors
 
         private void OnEditorKeyDown(object sender, KeyEventArgs e)
         {
+            // When dropdown is open but nothing selected, Tab/Enter should close dropdown and move focus (don't consume key)
+            if (IsDropDownOpen && (e.Key == Key.Tab || e.Key == Key.Enter) && ItemsSelector?.SelectedItem == null)
+            {
+                IsDropDownOpen = false;
+                return;
+            }
             if (SelectionAdapter != null)
             {
                 if (IsDropDownOpen)
@@ -417,9 +441,19 @@ namespace AutoCompleteTextBox.Editors
         {
             FetchTimer.IsEnabled = false;
             FetchTimer.Stop();
-            if (Provider != null && ItemsSelector != null)
+            if (Provider != null && ItemsSelector != null && Editor != null)
             {
-                Filter = Editor.Text;
+                string text = Editor.Text ?? string.Empty;
+                if (!string.IsNullOrEmpty(MultiValueSeparator))
+                {
+                    // Multi-value: filter by current segment only (text after last separator) so suggestions work after comma
+                    int lastSep = text.LastIndexOf(MultiValueSeparator, StringComparison.Ordinal);
+                    Filter = lastSep < 0 ? text.Trim() : text.Substring(lastSep + MultiValueSeparator.Length).Trim();
+                }
+                else
+                {
+                    Filter = text;
+                }
                 if (_suggestionsAdapter == null)
                 {
                     _suggestionsAdapter = new SuggestionsAdapter(this);
@@ -430,6 +464,11 @@ namespace AutoCompleteTextBox.Editors
 
         private void OnPopupClosed(object sender, EventArgs e)
         {
+            if (_justCommitted)
+            {
+                _justCommitted = false;
+                return;
+            }
             if (!_selectionCancelled)
             {
                 OnSelectionAdapterCommit(SelectionAdapter.EventCause.PopupClosed);
@@ -439,6 +478,7 @@ namespace AutoCompleteTextBox.Editors
         private void OnPopupOpened(object sender, EventArgs e)
         {
             _selectionCancelled = false;
+            _justCommitted = false;
             ItemsSelector.SelectedItem = SelectedItem;
         }
 
@@ -476,12 +516,37 @@ namespace AutoCompleteTextBox.Editors
 
             if (ItemsSelector.SelectedItem != null)
             {
-                SelectedItem = ItemsSelector.SelectedItem;
+                _justCommitted = true;
+                string displayText = GetDisplayText(ItemsSelector.SelectedItem);
+                if (string.IsNullOrEmpty(displayText))
+                {
+                    _justCommitted = false;
+                    return;
+                }
+
                 _isUpdatingText = true;
-                Editor.Text = GetDisplayText(ItemsSelector.SelectedItem);
-                Editor.SelectionStart = Editor.Text.Length;
-                Editor.SelectionLength = 0;
+                SelectedItem = ItemsSelector.SelectedItem;
                 SetSelectedItem(ItemsSelector.SelectedItem);
+
+                if (!string.IsNullOrEmpty(MultiValueSeparator) && Editor != null)
+                {
+                    // Multi-value (e.g. tags): replace current segment with selected + separator (so suggestions work after comma)
+                    string current = Editor.Text ?? string.Empty;
+                    int lastSep = current.LastIndexOf(MultiValueSeparator, StringComparison.Ordinal);
+                    string before = lastSep < 0 ? string.Empty : current.Substring(0, lastSep + MultiValueSeparator.Length);
+                    string newText = before + displayText + MultiValueSeparator;
+                    Editor.Text = newText;
+                }
+                else if (Editor != null)
+                {
+                    Editor.Text = displayText;
+                }
+
+                if (Editor != null)
+                {
+                    Editor.SelectionStart = Editor.Text.Length;
+                    Editor.SelectionLength = 0;
+                }
                 _isUpdatingText = false;
                 IsDropDownOpen = false;
             }
@@ -495,9 +560,23 @@ namespace AutoCompleteTextBox.Editors
                 return;
 
             _isUpdatingText = true;
-            Editor.Text = ItemsSelector.SelectedItem == null ? Filter : GetDisplayText(ItemsSelector.SelectedItem);
-            Editor.SelectionStart = Editor.Text.Length;
-            Editor.SelectionLength = 0;
+            if (!string.IsNullOrEmpty(MultiValueSeparator) && Editor != null && ItemsSelector.SelectedItem != null)
+            {
+                // Multi-value: preserve text before current segment, only replace segment with selected
+                string current = Editor.Text ?? string.Empty;
+                int lastSep = current.LastIndexOf(MultiValueSeparator, StringComparison.Ordinal);
+                string before = lastSep < 0 ? string.Empty : current.Substring(0, lastSep + MultiValueSeparator.Length);
+                Editor.Text = before + GetDisplayText(ItemsSelector.SelectedItem);
+            }
+            else if (Editor != null)
+            {
+                Editor.Text = ItemsSelector.SelectedItem == null ? Filter : GetDisplayText(ItemsSelector.SelectedItem);
+            }
+            if (Editor != null)
+            {
+                Editor.SelectionStart = Editor.Text.Length;
+                Editor.SelectionLength = 0;
+            }
             _isUpdatingText = false;
         }
 
