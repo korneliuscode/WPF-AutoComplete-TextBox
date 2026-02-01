@@ -68,9 +68,10 @@
     </Style>
 
     <Style TargetType="{x:Type editors:AutoCompleteTextBox}">
+        <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="BorderBrush" Value="#FFABADB3" />
-        <Setter Property="SuggestionBackground" Value="White" />
+        <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}" />
+        <Setter Property="SuggestionBackground" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
         <Setter Property="VerticalContentAlignment" Value="Top" />
         <Setter Property="AllowDrop" Value="true" />
@@ -80,7 +81,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type editors:AutoCompleteTextBox}">
-                    <Border
+                    <Border x:Name="PART_OuterBorder"
                         Background="{TemplateBinding Background}"
                         BorderBrush="{TemplateBinding BorderBrush}"
                         BorderThickness="{TemplateBinding BorderThickness}"
@@ -121,13 +122,13 @@
                                 Focusable="False"
                                 HorizontalOffset="0"
                                 IsOpen="{Binding Path=IsDropDownOpen, RelativeSource={RelativeSource Mode=TemplatedParent}, Mode=TwoWay}"
-                                PopupAnimation="Slide">
+                                PopupAnimation="None">
                                 <Border
                                     Padding="2"
                                     Background="{Binding Path=SuggestionBackground, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=editors:AutoCompleteTextBox}, Mode=OneWay}"
                                     BorderBrush="Gray"
                                     BorderThickness="1"
-                                    CornerRadius="5">
+                                    CornerRadius="0">
                                     <Grid Background="{Binding Path=SuggestionBackground, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=editors:AutoCompleteTextBox}, Mode=OneWay}">
                                         <ListBox
                                             x:Name="PART_Selector"
@@ -160,8 +161,19 @@
                         <Trigger Property="IconPlacement" Value="Right">
                             <Setter TargetName="PART_Icon" Property="DockPanel.Dock" Value="Right" />
                         </Trigger>
+                        <Trigger SourceName="PART_OuterBorder" Property="IsMouseOver" Value="True">
+                            <Setter TargetName="PART_OuterBorder" Property="BorderBrush" Value="#FF99C1DE" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsKeyboardFocusWithin" Value="True" />
+                            </MultiTrigger.Conditions>
+                            <MultiTrigger.Setters>
+                                <Setter TargetName="PART_OuterBorder" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
+                            </MultiTrigger.Setters>
+                        </MultiTrigger>
                         <Trigger Property="Validation.HasError" Value="True">
-                            <Setter Property="BorderBrush" Value="Red" />
+                            <Setter TargetName="PART_OuterBorder" Property="BorderBrush" Value="Red" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
